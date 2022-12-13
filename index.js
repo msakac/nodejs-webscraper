@@ -208,7 +208,6 @@ app.get('/arena', (req, res) => {
                         gostNerjeseno: koeficijenti[4],
                         domacinGost: koeficijenti[5],
                     }
-                    console.log(koeficijenti);
                     if(domacin != null && gost != null){
                         parovi.push({domacin, gost, koef});
                         brojUtakmica++;
