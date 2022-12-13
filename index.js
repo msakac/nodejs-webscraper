@@ -103,6 +103,8 @@ app.get('/germania', (req, res) => {
     });
 });
 
+//Crobet scraper
+//Crobet koristi CDN tak da se html rucno kopira i cita iz .txt datoteke
 app.get('/crobet', (req, res) => {
     let parovi = [];
     let brojUtakmica = 0;
