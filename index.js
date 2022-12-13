@@ -8,7 +8,7 @@ const fs = require('fs')
 app.use(cors())
 
 //Scraper za psk dela jer ne koristiju cdn
-const urlPsk = 'https://www.psk.hr/oklade/nogomet?selectDates=1&date=2022-12-12'
+const urlPsk = 'https://www.psk.hr/oklade/nogomet?selectDates=1&date=2022-12-13'
 
 app.get('/psk', (req, res) => {
 
@@ -103,30 +103,56 @@ app.get('/germania', (req, res) => {
     });
 });
 
-const datum = '11.12.2022'
-const urlLutrija = 'https://www.lutrija.hr/crobet?game=sport#/sport/SearchBySport=0&Day=' + datum + '/sport/1'
-
-app.get('/lutrija', (req, res) => {
-    axios(urlLutrija).then(response => {
-        const html = response.data;
-        const $ = cheerio.load(html);
-        fs.truncate('bla.txt', 0, function () { console.log('File cleared') })
-        fs.writeFile('bla.txt', html, function (err) {
-            if (err) throw err;
-            console.log('Saved!');
+app.get('/crobet', (req, res) => {
+    let parovi = [];
+    let brojUtakmica = 0;
+    //cita html iz txt filea
+    fs.readFile('crobet.txt', 'utf8', (err, fileData) => {
+        if(err){
+            console.log(err);
+            return;
+        }
+        const $ = cheerio.load(fileData);
+        //trazim sve retke tablice koji imaju klasu event
+        $('tr', fileData).each(function (){
+            let domacin,gost;
+            let koef = {};
+            const trEvent = $(this);
+            //trazim samo retke koji imaju jedino klasu event jer su to utakmice
+            if(trEvent.hasClass("event") && !trEvent.hasClass("solo")){
+                //trazim span koji nema nikakvu klasu jer je to naslov
+                $('span', trEvent).each(function (){
+                    const span = $(this);
+                    //izvlacim van gosta i domacina
+                    if(!span.hasClass('time') && !span.hasClass('icons') && span.text().length > 5){
+                        const timovi = span.text().split('-');
+                        domacin = timovi[0];
+                        gost = timovi[1];
+                    }
+                });
+                //vadim van sve koeficijente
+                let koeficijenti = [];
+                $('div .odd', trEvent).each(function () {
+                    const div = $(this);
+                    koeficijenti.push(div.text());
+                });
+                koef = {
+                    domacin: koeficijenti[0],
+                    nerjeseno: koeficijenti[1],
+                    gost: koeficijenti[2],
+                    domacinNerjeseno: koeficijenti[3],
+                    gostNerjeseno: koeficijenti[4],
+                    domacinGost: koeficijenti[5],
+                }
+            }
+            if(domacin != null && gost != null){
+                parovi.push({domacin, gost, koef});
+                brojUtakmica++;
+            }
         })
-        const parovi = []
-        let brojUlaza = 0;
-
-        $('.competition', html).each(function () {
-            const data = $(this);
-            brojUlaza++;
-            console.log(data);
-        })
-        console.log('Broj ulaza u petlju ' + brojUlaza)
+        console.log('Broj utakmica CroBet: ' + brojUtakmica);
         res.json(parovi);
-    }).catch(err => console.log(err))
-
+    });  
 });
 
 app.listen(PORT, () => console.log(`server running on PORT ${PORT}`))
