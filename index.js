@@ -1,276 +1,114 @@
 const PORT = 8000
 const axios = require('axios')
-const cheerio = require('cheerio')
 const express = require('express')
 const app = express()
 const cors = require('cors')
-const fs = require('fs')
-const { Console } = require('console')
+const scrapeSuperSport = require('./Scrapers/SuperSport');
+const scrapePsk = require('./Scrapers/Psk');
+const scrapeGermania = require('./Scrapers/Germania');
+const scrapeArena = require('./Scrapers/Arena');
+const scrapeCrobet = require('./Scrapers/Crobet');
+const dohvatiKladionice = require('./Scrapers/Kladionice');
+
 app.use(cors())
 
-//Scraper za psk dela jer ne koristiju cdn
-const urlPsk = 'https://www.psk.hr/oklade/nogomet?selectDates=1&date=2022-12-13'
-
 app.get('/psk', (req, res) => {
-
-    axios(urlPsk).then(response => {
-        const html = response.data;
-        const $ = cheerio.load(html);
-        let parovi = []
-        let brojUtakmica = 0;
-        //iteriram kroz sve tr elemente
-        $('tr', html).each(function () {
-            const data = $(this);
-            //pronalazim naslov utakmice 
-            const utakmica = $(this).find('.col-title').attr('data-value');
-            let kvote = [];
-            //iteriram se kroz kvote
-            $('.col-odds', data).each(function () {
-                const kvota = $(this).find('.odds-button').attr('data-value');
-                if (kvota != null) {
-                    kvote.push(kvota);
-                }
-            })
-            //postavljanje koeficijente
-            koef = {
-                domacin: kvote[0],
-                nerjeseno: kvote[1],
-                gost: kvote[2],
-                domacinNerjeseno: kvote[3],
-                gostNerjeseno: kvote[4],
-                domacinGost: kvote[5],
-            }
-            //ako je utakmica i ako ima kvota dodajem u parove
-            if (utakmica != null && kvote.length > 0) {
-                brojUtakmica++;
-                //razdvajam timove
-                const timovi = utakmica.split(' - ');
-                parovi.push({ domacin: timovi[0], gost: timovi[1], koef });
-            }
-        })
-        console.log('Broj utakmica PSK: ' + brojUtakmica);
-        res.json(parovi);
-    }).catch(err => console.log(err))
+    scrapePsk().then((data) => {
+        res.json(data);
+    });
 });
 
-//Germania scraper
-//Germania koristi CDN tak da prek axiosa nebrem scrapat website nego moram ručno kopirat html kod u germania.txt i čitat iz njega
 app.get('/germania', (req, res) => {
-    let parovi = [];
-    let brojUtakmica = 0;
-    //citam html iz txt filea
-    fs.readFile('germania.txt', 'utf8', (err, fileData) => {
-        if (err) {
-            console.log(err);
-            return;
-        }
-        //parsiram html
-        const $ = cheerio.load(fileData);
-        //trazim sve divove sa klasom match
-        $('div .match', fileData).each(function () {
-            const divMatch = $(this);
-            let domacin, gost;
-            let koef = {};
-            //trazim sve divove sa klasom sp-mark koja oznaca da se radi o specijalnoj ponudi
-            const specijalnaPonuda = divMatch.find('.sp-mark').text();
-            //ako nema specijalne ponude mogu obraditi podatke
-            if (specijalnaPonuda == '') {
-                let podaciUtakmice = [];
-                //iteriram se kroz sve spanove i nutra stavljam sve tekstove koji su u njima
-                $('span', divMatch).each(function () {
-                    span = $(this);
-                    podaciUtakmice.push(span.text());
-                });
-                //postavljanje potrebnih podataka
-                domacin = podaciUtakmice[2];
-                gost = podaciUtakmice[3];
-                koef= {
-                    domacin: podaciUtakmice[4],
-                    nerjeseno: podaciUtakmice[6],
-                    gost: podaciUtakmice[8],
-                    domacinNerjeseno: podaciUtakmice[10],
-                    gostNerjeseno: podaciUtakmice[12],
-                    domacinGost: podaciUtakmice[14],
-                }
-                //console.log(podaciUtakmice);
-            }
-            if(domacin != null && gost != null && koef != null){
-                brojUtakmica++;
-                parovi.push({ domacin, gost, koef });
-            }
-        })
-        console.log('Broj utakmica Germania: ' + brojUtakmica);
+    scrapeGermania().then((data) => {
+        res.json(data);
+    });
+});
+
+app.get('/crobet', (req, res) => {
+    scrapeCrobet().then((data) => {
+        res.json(data);
+    });
+});
+
+app.get('/arena', (req, res) => {
+    scrapeArena().then((data) => {
+        res.json(data);
+    });
+});
+
+app.get('/supersport', async (req, res) => {
+    scrapeSuperSport().then((parovi) => {
         res.json(parovi);
     });
 });
 
-//Crobet scraper
-//Crobet koristi CDN tak da se html rucno kopira i cita iz .txt datoteke
-app.get('/crobet', (req, res) => {
-    let parovi = [];
-    let brojUtakmica = 0;
-    //cita html iz txt filea
-    fs.readFile('crobet.txt', 'utf8', (err, fileData) => {
-        if(err){
-            console.log(err);
-            return;
-        }
-        const $ = cheerio.load(fileData);
-        //trazim sve retke tablice koji imaju klasu event
-        $('tr', fileData).each(function (){
-            let domacin,gost;
-            let koef = {};
-            const trEvent = $(this);
-            //trazim samo retke koji imaju jedino klasu event jer su to utakmice
-            if(trEvent.hasClass("event") && !trEvent.hasClass("solo")){
-                //trazim span koji nema nikakvu klasu jer je to naslov
-                $('span', trEvent).each(function (){
-                    const span = $(this);
-                    //izvlacim van gosta i domacina
-                    if(!span.hasClass('time') && !span.hasClass('icons') && span.text().length > 5){
-                        const timovi = span.text().split('-');
-                        domacin = timovi[0];
-                        gost = timovi[1];
-                    }
-                });
-                //vadim van sve koeficijente
-                let koeficijenti = [];
-                $('div .odd', trEvent).each(function () {
-                    const div = $(this);
-                    koeficijenti.push(div.text());
-                });
-                koef = {
-                    domacin: koeficijenti[0],
-                    nerjeseno: koeficijenti[1],
-                    gost: koeficijenti[2],
-                    domacinNerjeseno: koeficijenti[3],
-                    gostNerjeseno: koeficijenti[4],
-                    domacinGost: koeficijenti[5],
-                }
-            }
-            if(domacin != null && gost != null){
-                parovi.push({domacin, gost, koef});
-                brojUtakmica++;
-            }
-        })
-        console.log('Broj utakmica CroBet: ' + brojUtakmica);
-        res.json(parovi);
-    });  
+app.get('/pokus', async (req, res) => {
+    const json = await axios("https://www.germaniasport.hr/betOffer2", {
+        "body": "{\"date\":\"2022-12-13\",\"sportIds\":[1],\"competitionIds\":[],\"sort\":\"bycompetition\",\"specials\":null,\"subgames\":[],\"size\":50,\"mostPlayed\":false,\"type\":\"betting\",\"numberOfGames\":0,\"activeCompleteOffer\":false,\"lang\":\"hr\",\"offset\":0}",
+        "method": "POST",
+    });
+    const rawData = json.data;
+    let podaci = [];
+    rawData.matches.forEach(element => {
+        const date = new Date(element.startTime);
+        const datum = date.toLocaleString();
+        podaci.push({datum});
+    });
+    res.json(podaci);
 });
 
-//Arena scraper
-//Arena koristi CDN
-//Kopira sam in content body
-app.get('/arena', (req, res) => {
-    let parovi = [];
-    let brojUtakmica = 0;
-
-    //citam html iz txt filea
-    fs.readFile('arena.txt', 'utf8', (err, fileData) => {
-        if(err){
-            console.log(err);
-            return;
-        }
-        const $ = cheerio.load(fileData);
-        //moram provjeravati dali se radi o bonus dana ili bonus plus
-        $('div .vue-recycle-scroller__item-view', fileData).each(function (){
-            const divVue = $(this);
-            //dohvacam naslov odjeljka na areni
-            const naslov = divVue.find('h2').text();
-            //necu parove koji su bonus dana i koji su bonus plus
-            if(naslov != 'Bonus dana' && naslov != 'Bonus Plus'){
-                //iteriram se kroz svaki nogometni dogadaj
-                $('div .ggame-item-content', divVue).each(function () {
-                    let domacin,gost;
-                    let koef = {};
-                    const divGameItemContent = $(this);
-                    //izvlacim van gosta i domacina
-                    $('span', divGameItemContent).each(function (){
-                        const span = $(this);
-                        if(span.hasClass('first-team')){
-                            const timovi = span.text().split(' - ');
-                            domacin = timovi[0];
-                            gost = timovi[1];
+app.get('/domacin-gostNerjeseno', async (req, res) => {
+    let brojacParova = 0;
+    dohvatiKladionice().then((kladionice) => {
+        kladionice.forEach(kladionica => {
+            kladionica.podaci.forEach(par => {
+                kladionice.forEach(kladionica2 => {
+                    kladionica2.podaci.forEach(par2 => {
+                        if (par.domacin == par2.domacin && par.gost == par2.gost) {
+                            if (par.koef.domacin != null && par2.koef.gostNerjeseno != null) {
+                                const brojDomacin = parseFloat(par.koef.domacin.replace(',', '.'));
+                                const brojGostNerjeseno = parseFloat(par2.koef.gostNerjeseno.replace(',', '.'));
+                                const roi = izracunajArbitrazu(brojDomacin, brojGostNerjeseno);
+                                if (roi > 1 && roi < 40) {
+                                    console.log(`${kladionica.naziv} - (1) ${par.domacin} - ${par.koef.domacin} | ${kladionica2.naziv} - (X2) ${par2.gost} - ${par2.koef.gostNerjeseno} - ROI: ${roi}%`)
+                                }
+                            }
+                            if (par.koef.gost != null && par2.koef.domacinNerjeseno != null) {
+                                const brojGost = parseFloat(par.koef.gost.replace(',', '.'));
+                                const brojDomacinNerjesno = parseFloat(par2.koef.domacinNerjeseno.replace(',', '.'));
+                                const roi = izracunajArbitrazu(brojGost, brojDomacinNerjesno);
+                                if (roi > 1 && roi < 40) {
+                                    console.log(`${kladionica.naziv} - (2) ${par.domacin} - ${par.koef.gost} | ${kladionica2.naziv} - (1X) ${par2.gost} - ${par2.koef.domacinNerjeseno} - ROI: ${roi}%`)
+                                }
+                            }
+                            if (par.koef.nerjeseno != null && par2.koef.domacinGost != null) {
+                                const brojNerjeseno = parseFloat(par.koef.nerjeseno.replace(',', '.'));
+                                const brojDomacinGost = parseFloat(par2.koef.domacinGost.replace(',', '.'));
+                                const roi = izracunajArbitrazu(brojNerjeseno, brojDomacinGost);
+                                if (roi > 1 && roi < 40) {
+                                    console.log(`${kladionica.naziv} - (X) ${par.domacin} - ${par.koef.nerjeseno} | ${kladionica2.naziv} - (12) ${par2.gost} - ${par2.koef.domacinGost} - ROI: ${roi}%`)
+                                }
+                            }
+                            brojacParova++;
                         }
                     });
-                    let koeficijenti = [];
-                    $('div .odd-number', divGameItemContent).each(function (){
-                        const divOddChange = $(this).text();
-                        //replace sve znakove koji nisu broj ili tocka
-                        var koefStripped = divOddChange.replace(/[^\d.]/g, '');
-                        koeficijenti.push(koefStripped);
-                    });
-                    koef = {
-                        domacin: koeficijenti[0],
-                        nerjeseno: koeficijenti[1],
-                        gost: koeficijenti[2],
-                        domacinNerjeseno: koeficijenti[3],
-                        gostNerjeseno: koeficijenti[4],
-                        domacinGost: koeficijenti[5],
-                    }
-                    if(domacin != null && gost != null){
-                        parovi.push({domacin, gost, koef});
-                        brojUtakmica++;
-                    }
                 });
-            }
-        });
-        console.log('Broj utakmica Arena: ' + brojUtakmica);
-        res.json(parovi);
-    });
-});
-
-//Supersport scraper
-app.get('/supersport', (req, res) => {
-    let parovi = [];
-    let brojUtakmica = 0;
-
-    fs.readFile('supersport.txt', 'utf8', (err, fileData) => {
-        if(err){
-            console.log(err);
-            return;
-        }
-
-        const $ = cheerio.load(fileData);
-        $('tr', fileData).each(function () {
-            const trPonuda = $(this);
-            let domacin, gost;
-            let koef = {};
-            brojUtakmica++;
-            const spanPonudaNaziv = trPonuda.find('.ponuda-naziv');
-            const timovi = [];
-            $('span', spanPonudaNaziv).each(function (){
-                span = $(this);
-                if(!span.hasClass('separator') && !span.hasClass('text-pored')){
-                    timovi.push(span.text());
-                }
             });
-            domacin = timovi[0];
-            gost = timovi[1];
-            let koeficijenti = [];
-            $('.tecaj-text', trPonuda).each(function (){
-                const divTecajText = $(this);
-                koeficijenti.push(divTecajText.text());
-            });
-            if(koeficijenti.length > 0){
-                koef= {
-                    domacin: koeficijenti[0],
-                    nerjeseno: koeficijenti[1],
-                    gost: koeficijenti[2],
-                    domacinNerjeseno: koeficijenti[3],
-                    gostNerjeseno: koeficijenti[4],
-                    domacinGost: koeficijenti[5],
-                }
-            }
-            if(domacin != null && gost != null){
-                parovi.push({ domacin, gost, koef });
-            }
         });
-        res.json(parovi);
+        res.json(brojacParova);
     });
 });
 
 app.listen(PORT, () => console.log(`server running on PORT ${PORT}`))
 
+function izracunajArbitrazu(koef1, koef2) {
+    const ulog = 100;
+    const stakeBet1 = ulog / (koef1 + koef2) * koef2;
+    const stakeBet2 = ulog / (koef1 + koef2) * koef1;
+    const payoutBet1 = koef1 * stakeBet1;
+    const payoutBet2 = koef2 * stakeBet2;
+    const roi = ((payoutBet1 / ulog - 1) * 100).toFixed(2);
+    return roi;
+}
 
 
